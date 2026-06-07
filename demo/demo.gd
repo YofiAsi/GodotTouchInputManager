@@ -1,9 +1,9 @@
 extends Control
-## Minimal gesture visualizer for GodotTouchInputManager.
+## Minimal visualizer for the five GodotTouchInputManager gestures.
 ##
-## Listens to every GestureManager signal via `any_gesture` and shows a running
-## log plus a marker at the latest gesture position. Works with real touch and
-## with "Emulate Touch From Mouse" / the desktop emulation key bindings.
+## Connects to every GestureManager signal, shows a running log, and draws a
+## marker at the latest gesture position. Works with real touch and, on desktop,
+## with "Emulate Touch From Mouse" (single-finger gestures only).
 
 const MAX_LINES := 14
 
@@ -18,28 +18,22 @@ var _marker_visible := false
 func _ready() -> void:
 	_title.text = (
 		"GodotTouchInputManager demo\n"
-		+ "Touch screen: tap / drag / swipe / long-press / pinch / twist directly.\n"
-		+ "Desktop: left-drag = touch/drag/swipe, hold still = long-press,\n"
-		+ "wheel = pinch, right-drag = twist, middle-drag = multi-drag,\n"
-		+ "Q W E / A D / Z X C = single swipe, U I O / J L / M , . = multi swipe."
+		+ "Touch: tap, long-press, swipe (1 finger) — tap / long-press (2+ fingers).\n"
+		+ "Desktop (Emulate Touch From Mouse): click = tap, hold = long-press,\n"
+		+ "flick = swipe. Multi-finger gestures need a real device."
 	)
-	GestureManager.any_gesture.connect(_on_any_gesture)
+	GestureManager.single_tap.connect(_on_gesture.bind(&"single_tap"))
+	GestureManager.single_long_press.connect(_on_gesture.bind(&"single_long_press"))
+	GestureManager.swipe_up.connect(_on_gesture.bind(&"swipe_up"))
+	GestureManager.swipe_down.connect(_on_gesture.bind(&"swipe_down"))
+	GestureManager.swipe_left.connect(_on_gesture.bind(&"swipe_left"))
+	GestureManager.swipe_right.connect(_on_gesture.bind(&"swipe_right"))
+	GestureManager.multi_tap.connect(_on_gesture.bind(&"multi_tap"))
+	GestureManager.multi_long_press.connect(_on_gesture.bind(&"multi_long_press"))
 
 
-func _on_any_gesture(gesture_name: StringName, event: InputEvent) -> void:
-	# Skip the high-frequency raw stream to keep the log readable.
-	if gesture_name == &"raw_gesture":
-		return
-
+func _on_gesture(event: InputEvent, gesture_name: StringName) -> void:
 	_push_line("%s  →  %s" % [gesture_name, event])
-
-	if gesture_name == &"cancel":
-		_marker_visible = false
-		queue_redraw()
-		return
-
-	# `position` is read dynamically because InputEvent has no such property; the
-	# concrete gesture subclasses do.
 	var gesture_position: Variant = event.get("position")
 	if gesture_position != null:
 		_marker_position = gesture_position

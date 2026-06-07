@@ -2,17 +2,17 @@ class_name InputEventMultiScreenLongPress
 extends InputEventAction
 ## Two or more fingers held in place past the long-press threshold.
 
-var position: Vector2
+var position: Vector2 ## Centroid of the finger press positions.
+var positions: Array ## Per-finger press positions (Vector2).
 var fingers: int
-var raw_gesture: RawGesture
 
 
-func _init(_raw_gesture: RawGesture = null) -> void:
-	raw_gesture = _raw_gesture
-	if raw_gesture:
-		fingers = raw_gesture.size()
-		position = raw_gesture.centroid("presses", "position")
+func _init(_positions: Array = []) -> void:
+	positions = _positions
+	fingers = _positions.size()
+	position = GestureUtil.centroid(_positions) if fingers > 0 else Vector2.ZERO
+	pressed = true
 
 
 func _to_string() -> String:
-	return "position=%s|fingers=%d" % [position, fingers]
+	return "InputEventMultiScreenLongPress: position=%s|fingers=%d" % [position, fingers]

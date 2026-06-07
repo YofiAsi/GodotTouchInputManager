@@ -1,82 +1,59 @@
 extends Node
 ## Touch gesture recognizer (autoload singleton "GestureManager").
 ##
-## Consumes native [InputEventScreenTouch] / [InputEventScreenDrag] events,
-## classifies them into high-level gestures, and republishes each as a custom
-## [InputEventAction] subclass (via [method Input.parse_input_event]) and as a
-## matching signal. On desktop, gestures can be emulated with the keyboard/mouse
-## bindings registered when [member GestureSettings.default_bindings] is on.
+## Recognizes five gestures from native touch input and republishes each as a
+## custom [InputEventAction] subclass (via [method Input.parse_input_event]) and
+## as a signal:
+##   single_tap, single_long_press,
+##   swipe_up / swipe_down / swipe_left / swipe_right,
+##   multi_tap, multi_long_press.
 ##
-## This script is intended to be autoloaded; access it globally as `GestureManager`.
+## Intended to be autoloaded; access it globally as `GestureManager`.
 
 const _DEFAULT_SETTINGS := preload("default_gesture_settings.tres")
 const _SETTINGS_PATH_SETTING := "godot_touch_input_manager/settings_path"
 
-## Maps an emulation action suffix to the swipe direction it represents.
-const SWIPE_TO_DIRECTION := {
-	"swipe_up": Vector2.UP,
-	"swipe_up_right": Vector2.UP + Vector2.RIGHT,
-	"swipe_right": Vector2.RIGHT,
-	"swipe_down_right": Vector2.DOWN + Vector2.RIGHT,
-	"swipe_down": Vector2.DOWN,
-	"swipe_down_left": Vector2.DOWN + Vector2.LEFT,
-	"swipe_left": Vector2.LEFT,
-	"swipe_up_left": Vector2.UP + Vector2.LEFT,
-}
-
-## Low-level, pre-classification touch event (used by desktop emulation).
-signal touch(event: InputEventScreenTouch)
-## Low-level, pre-classification drag event (used by desktop emulation).
-signal drag(event: InputEventScreenDrag)
-signal single_touch(event: InputEventSingleScreenTouch)
 signal single_tap(event: InputEventSingleScreenTap)
-signal single_drag(event: InputEventSingleScreenDrag)
-signal single_swipe(event: InputEventSingleScreenSwipe)
 signal single_long_press(event: InputEventSingleScreenLongPress)
+signal swipe_up(event: InputEventSingleScreenSwipe)
+signal swipe_down(event: InputEventSingleScreenSwipe)
+signal swipe_left(event: InputEventSingleScreenSwipe)
+signal swipe_right(event: InputEventSingleScreenSwipe)
 signal multi_tap(event: InputEventMultiScreenTap)
-signal multi_drag(event: InputEventMultiScreenDrag)
-signal multi_swipe(event: InputEventMultiScreenSwipe)
 signal multi_long_press(event: InputEventMultiScreenLongPress)
-signal pinch(event: InputEventScreenPinch)
-signal twist(event: InputEventScreenTwist)
-## Emitted on every raw touch/drag with the live [RawGesture] state.
-signal raw_gesture(gesture: RawGesture)
-signal cancel(event: InputEventScreenCancel)
-## Meta-signal fired alongside every gesture above: `(signal_name, event)`.
-signal any_gesture(name: StringName, event: InputEvent)
 
-enum Gesture { PINCH, MULTI_DRAG, TWIST, SINGLE_DRAG, NONE }
+## Per-finger record for the gesture session in progress.
+class _Finger:
+	var start: Vector2
+	var last: Vector2
+	var down_time: float
+	var up_time: float = -1.0
+	var down: bool = true
 
 ## Active configuration. Defaults to the bundled resource (or the one named by
 ## the `godot_touch_input_manager/settings_path` project setting). Reassignable
 ## at runtime.
 var settings: GestureSettings
 
-var raw_gesture_data: RawGesture = RawGesture.new()
+# Gesture session state. A session spans from the first finger touching down
+# until the last finger lifts off.
+var _fingers: Dictionary = {} # int index -> _Finger
+var _active_count: int = 0
+var _peak_fingers: int = 0
+var _session_start_time: float = 0.0
+var _long_press_fired: bool = false
 
-var _mouse_event_press_position: Vector2
-var _mouse_event: int = Gesture.NONE
-
-var _drag_startup_timer := Timer.new()
 var _long_press_timer := Timer.new()
-
-var _single_touch_cancelled: bool = false
-var _single_drag_enabled: bool = false
 
 
 func _ready() -> void:
 	_load_settings()
-
-	# Emit events even if the scene tree is paused.
 	process_mode = (
 		Node.PROCESS_MODE_ALWAYS if settings.process_when_paused else Node.PROCESS_MODE_INHERIT
 	)
-
-	_setup_timer(_drag_startup_timer, _on_drag_startup_timer_timeout)
-	_setup_timer(_long_press_timer, _on_long_press_timer_timeout)
-
-	if settings.default_bindings:
-		_register_default_bindings()
+	_long_press_timer.one_shot = true
+	_long_press_timer.timeout.connect(_on_long_press_timeout)
+	add_child(_long_press_timer)
 
 
 func _load_settings() -> void:
@@ -90,337 +67,154 @@ func _load_settings() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventScreenDrag:
-		_handle_screen_drag(event)
-	elif event is InputEventScreenTouch:
-		_handle_screen_touch(event)
-	elif event is InputEventMouseMotion:
-		_handle_mouse_motion(event)
+	# Only native touch drives recognition. Everything else (including the custom
+	# events we re-inject via parse_input_event) is ignored, so there is no loop.
+	if event is InputEventScreenTouch:
+		_on_screen_touch(event)
+	elif event is InputEventScreenDrag:
+		_on_screen_drag(event)
+
+
+func _on_screen_touch(event: InputEventScreenTouch) -> void:
+	if event.canceled:
+		_abort_session()
+	elif event.pressed:
+		_on_press(event.index, event.position)
 	else:
-		_handle_action(event)
+		_on_release(event.index, event.position)
 
 
-func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
-	if raw_gesture_data.size() == 1 and _mouse_event == Gesture.SINGLE_DRAG:
-		_dispatch(&"drag", _native_drag_event(0, event.position, event.relative, event.velocity))
-	elif raw_gesture_data.size() == 2 and _mouse_event == Gesture.MULTI_DRAG:
-		var offset := Vector2(5, 5)
-		var e0 := _native_drag_event(0, event.position - offset, event.relative, event.velocity)
-		raw_gesture_data._update_screen_drag(e0)
-		var e1 := _native_drag_event(1, event.position + offset, event.relative, event.velocity)
-		raw_gesture_data._update_screen_drag(e1)
-		_dispatch(&"multi_drag", InputEventMultiScreenDrag.new(raw_gesture_data, e0))
-		_dispatch(&"multi_drag", InputEventMultiScreenDrag.new(raw_gesture_data, e1))
-	elif _mouse_event == Gesture.TWIST:
-		var rel1 := event.position - _mouse_event_press_position
-		var rel2 := rel1 + event.relative
-		var twist_event := InputEventScreenTwist.new()
-		twist_event.position = _mouse_event_press_position
-		twist_event.relative = rel1.angle_to(rel2)
-		twist_event.fingers = 2
-		_dispatch(&"twist", twist_event)
+func _on_screen_drag(event: InputEventScreenDrag) -> void:
+	var finger: _Finger = _fingers.get(event.index)
+	if finger != null:
+		finger.last = event.position
 
 
-func _handle_screen_touch(event: InputEventScreenTouch) -> void:
-	if event.index < 0:
-		_dispatch(&"cancel", InputEventScreenCancel.new(raw_gesture_data, event))
-		_end_gesture()
+func _on_press(index: int, position: Vector2) -> void:
+	if _active_count == 0:
+		_begin_session()
+	var finger := _Finger.new()
+	finger.start = position
+	finger.last = position
+	finger.down_time = GestureUtil.now()
+	_fingers[index] = finger
+	_active_count += 1
+	_peak_fingers = maxi(_peak_fingers, _active_count)
+
+
+func _on_release(index: int, position: Vector2) -> void:
+	var finger: _Finger = _fingers.get(index)
+	if finger == null: # orphaned release with no matching press
+		return
+	finger.last = position
+	finger.up_time = GestureUtil.now()
+	finger.down = false
+	_active_count -= 1
+	if _active_count <= 0:
+		_end_session()
+
+
+func _begin_session() -> void:
+	_fingers.clear()
+	_active_count = 0
+	_peak_fingers = 0
+	_long_press_fired = false
+	_session_start_time = GestureUtil.now()
+	_long_press_timer.start(settings.long_press_time_threshold)
+
+
+func _end_session() -> void:
+	_long_press_timer.stop()
+	if not _long_press_fired:
+		_classify_release()
+	_reset_session()
+
+
+func _abort_session() -> void:
+	_long_press_timer.stop()
+	_reset_session()
+
+
+func _reset_session() -> void:
+	_fingers.clear()
+	_active_count = 0
+	_peak_fingers = 0
+	_long_press_fired = false
+
+
+## Classifies a completed session (last finger just lifted) into a tap or swipe.
+func _classify_release() -> void:
+	var duration := GestureUtil.now() - _session_start_time
+
+	if _peak_fingers >= 2:
+		if duration < settings.tap_time_limit and not _any_finger_moved(settings.tap_distance_limit):
+			_emit(&"multi_tap", InputEventMultiScreenTap.new(_finger_starts()))
 		return
 
-	# Ignore orphaned release events (release with no matching press on record).
-	if not event.pressed and not raw_gesture_data.presses.has(event.index):
+	var finger: _Finger = _fingers.values()[0]
+	var relative: Vector2 = finger.last - finger.start
+	var distance := relative.length()
+	var finger_duration := finger.up_time - finger.down_time
+
+	if distance > settings.swipe_distance_threshold and finger_duration < settings.swipe_time_limit:
+		_emit_swipe(finger.start, relative)
+	elif distance <= settings.tap_distance_limit and finger_duration < settings.tap_time_limit:
+		_emit(&"single_tap", InputEventSingleScreenTap.new(finger.start))
+
+
+func _on_long_press_timeout() -> void:
+	if _long_press_fired or _active_count == 0:
 		return
-
-	raw_gesture_data._update_screen_touch(event)
-	_dispatch(&"raw_gesture", raw_gesture_data)
-
-	if event.pressed:
-		if raw_gesture_data.size() == 1: # First and only touch.
-			_long_press_timer.start(settings.long_press_time_threshold)
-			_single_touch_cancelled = false
-			_dispatch(&"single_touch", InputEventSingleScreenTouch.new(raw_gesture_data))
-		elif not _single_touch_cancelled:
-			_single_touch_cancelled = true
-			_cancel_single_drag()
-			_dispatch(&"single_touch", InputEventSingleScreenTouch.new(raw_gesture_data))
-	else:
-		var fingers := raw_gesture_data.size()
-		if event.index == 0:
-			_dispatch(&"single_touch", InputEventSingleScreenTouch.new(raw_gesture_data))
-			if not _single_touch_cancelled:
-				var distance: float = (
-					raw_gesture_data.releases[0].position - raw_gesture_data.presses[0].position
-				).length()
-				if (
-					raw_gesture_data.elapsed_time < settings.tap_time_limit
-					and distance <= settings.tap_distance_limit
-				):
-					_dispatch(&"single_tap", InputEventSingleScreenTap.new(raw_gesture_data))
-				if (
-					raw_gesture_data.elapsed_time < settings.swipe_time_limit
-					and distance > settings.swipe_distance_threshold
-				):
-					_dispatch(&"single_swipe", InputEventSingleScreenSwipe.new(raw_gesture_data))
-		if raw_gesture_data.active_touches == 0: # Last finger released.
-			if _single_touch_cancelled:
-				_try_emit_multi_release(fingers)
-			_end_gesture()
-		_cancel_single_drag()
-
-
-## Emits a multi-tap or multi-swipe if the just-completed multi-finger gesture
-## qualifies. Only called once the last finger of a multi-touch lifts off.
-func _try_emit_multi_release(fingers: int) -> void:
-	var distance: float = (
-		raw_gesture_data.centroid("releases", "position")
-		- raw_gesture_data.centroid("presses", "position")
-	).length()
-	var released_together := _released_together(
-		raw_gesture_data, settings.multi_finger_release_threshold
-	)
-
-	if (
-		raw_gesture_data.elapsed_time < settings.tap_time_limit
-		and distance <= settings.tap_distance_limit
-		and raw_gesture_data.is_consistent(settings.tap_distance_limit, settings.finger_size * fingers)
-		and released_together
-	):
-		_dispatch(&"multi_tap", InputEventMultiScreenTap.new(raw_gesture_data))
-	if (
-		raw_gesture_data.elapsed_time < settings.swipe_time_limit
-		and distance > settings.swipe_distance_threshold
-		and raw_gesture_data.is_consistent(settings.finger_size, settings.finger_size * fingers)
-		and released_together
-	):
-		_dispatch(&"multi_swipe", InputEventMultiScreenSwipe.new(raw_gesture_data))
-
-
-func _handle_screen_drag(event: InputEventScreenDrag) -> void:
-	if event.index < 0:
-		_dispatch(&"cancel", InputEventScreenCancel.new(raw_gesture_data, event))
-		_end_gesture()
+	if _any_finger_moved(settings.long_press_distance_limit):
 		return
+	_long_press_fired = true
 
-	raw_gesture_data._update_screen_drag(event)
-	_dispatch(&"raw_gesture", raw_gesture_data)
-
-	if raw_gesture_data.drags.size() > 1:
-		_cancel_single_drag()
-		match _identify_gesture(raw_gesture_data):
-			Gesture.PINCH:
-				_dispatch(&"pinch", InputEventScreenPinch.new(raw_gesture_data, event))
-			Gesture.MULTI_DRAG:
-				_dispatch(&"multi_drag", InputEventMultiScreenDrag.new(raw_gesture_data, event))
-			Gesture.TWIST:
-				_dispatch(&"twist", InputEventScreenTwist.new(raw_gesture_data, event))
-	elif _single_drag_enabled:
-		_dispatch(&"single_drag", InputEventSingleScreenDrag.new(raw_gesture_data))
-	elif _drag_startup_timer.is_stopped():
-		_drag_startup_timer.start(settings.drag_startup_time)
-
-
-## Desktop emulation: translate registered keyboard/mouse actions into gestures.
-func _handle_action(event: InputEvent) -> void:
-	# `is_pressed()` (not `.pressed`) so this stays valid for the base InputEvent type.
-	var pressed := event.is_pressed()
-	if _is_action(event, "single_touch"):
-		_dispatch(&"touch", _native_touch_event(0, _mouse_position(), pressed))
-		_mouse_event = Gesture.SINGLE_DRAG if pressed else Gesture.NONE
-	elif _is_action(event, "multi_touch"):
-		_dispatch(&"touch", _native_touch_event(0, _mouse_position(), pressed))
-		_dispatch(&"touch", _native_touch_event(1, _mouse_position(), pressed))
-		_mouse_event = Gesture.MULTI_DRAG if pressed else Gesture.NONE
-	elif _is_action(event, "twist"):
-		_mouse_event_press_position = _mouse_position()
-		_mouse_event = Gesture.TWIST if pressed else Gesture.NONE
-	elif _is_action_pressed(event, "pinch_outward") or _is_action_pressed(event, "pinch_inward"):
-		var pinch_event := InputEventScreenPinch.new()
-		pinch_event.fingers = 2
-		pinch_event.position = _mouse_position()
-		pinch_event.distance = 400.0
-		pinch_event.relative = -40.0 if _is_action_pressed(event, "pinch_inward") else 40.0
-		_dispatch(&"pinch", pinch_event)
+	var held := _held_finger_starts()
+	if held.size() >= 2:
+		_emit(&"multi_long_press", InputEventMultiScreenLongPress.new(held))
 	else:
-		_handle_swipe_emulation(event)
+		_emit(&"single_long_press", InputEventSingleScreenLongPress.new(held[0]))
 
 
-func _handle_swipe_emulation(event: InputEvent) -> void:
-	for suffix in SWIPE_TO_DIRECTION:
-		var direction: Vector2 = SWIPE_TO_DIRECTION[suffix]
-		var relative := direction * settings.swipe_distance_threshold * 2.0
-		if _is_action_pressed(event, "single_" + suffix):
-			var single := InputEventSingleScreenSwipe.new()
-			single.position = _mouse_position()
-			single.relative = relative
-			_dispatch(&"single_swipe", single)
-			return
-		if _is_action_pressed(event, "multi_" + suffix):
-			var multi := InputEventMultiScreenSwipe.new()
-			multi.fingers = 2
-			multi.position = _mouse_position()
-			multi.relative = relative
-			_dispatch(&"multi_swipe", multi)
-			return
+func _emit_swipe(start: Vector2, relative: Vector2) -> void:
+	var event := InputEventSingleScreenSwipe.new(start, relative)
+	match event.direction:
+		InputEventSingleScreenSwipe.Direction.UP:
+			_emit(&"swipe_up", event)
+		InputEventSingleScreenSwipe.Direction.DOWN:
+			_emit(&"swipe_down", event)
+		InputEventSingleScreenSwipe.Direction.LEFT:
+			_emit(&"swipe_left", event)
+		InputEventSingleScreenSwipe.Direction.RIGHT:
+			_emit(&"swipe_right", event)
 
 
-## Publishes an event: prints if debugging, fires the named signal and the
-## `any_gesture` meta-signal, and feeds it back into the input system so it can
-## be picked up via `_input`/`is_action_pressed`.
-func _dispatch(signal_name: StringName, event: InputEvent) -> void:
+func _emit(signal_name: StringName, event: InputEvent) -> void:
 	if settings.debug:
 		print("[GestureManager] %s: %s" % [signal_name, event])
-	any_gesture.emit(signal_name, event)
 	emit_signal(signal_name, event)
 	Input.parse_input_event(event)
 
 
-func _cancel_single_drag() -> void:
-	_single_drag_enabled = false
-	_drag_startup_timer.stop()
+# --- Finger helpers -------------------------------------------------------------
+
+func _any_finger_moved(limit: float) -> bool:
+	for finger: _Finger in _fingers.values():
+		if (finger.last - finger.start).length() > limit:
+			return true
+	return false
 
 
-## True if all fingers were released within `threshold` seconds of each other.
-func _released_together(gesture: RawGesture, threshold: float) -> bool:
-	var rolled_back: RawGesture = gesture.rollback_relative(threshold)[0]
-	return rolled_back.size() == rolled_back.active_touches
+func _finger_starts() -> Array:
+	var starts: Array = []
+	for finger: _Finger in _fingers.values():
+		starts.append(finger.start)
+	return starts
 
 
-## Classifies a 2+ finger drag as PINCH, TWIST or MULTI_DRAG by checking which
-## angular sector each finger's motion falls into relative to the centroid.
-func _identify_gesture(gesture: RawGesture) -> int:
-	var center: Vector2 = gesture.centroid("drags", "position")
-
-	var sector: int = -1
-	for drag in gesture.drags.values():
-		var adjusted_position: Vector2 = center - drag.position
-		var raw_angle: float = fmod(adjusted_position.angle_to(drag.relative) + (PI / 4), TAU)
-		var adjusted_angle: float = raw_angle if raw_angle >= 0 else raw_angle + TAU
-		var drag_sector: int = int(floor(adjusted_angle / (PI / 2)))
-		if sector == -1:
-			sector = drag_sector
-		elif sector != drag_sector:
-			return Gesture.MULTI_DRAG
-
-	# Opposite sectors (0/2) mean fingers move along the centroid axis -> pinch;
-	# perpendicular sectors (1/3) mean they orbit the centroid -> twist.
-	if sector == 0 or sector == 2:
-		return Gesture.PINCH
-	return Gesture.TWIST
-
-
-func _on_drag_startup_timer_timeout() -> void:
-	_single_drag_enabled = raw_gesture_data.drags.size() == 1
-
-
-func _on_long_press_timer_timeout() -> void:
-	var ends_centroid: Vector2 = GestureUtil.centroid(raw_gesture_data.get_ends().values())
-	var starts_centroid: Vector2 = raw_gesture_data.centroid("presses", "position")
-	var distance := (ends_centroid - starts_centroid).length()
-
-	var held_still := (
-		raw_gesture_data.releases.is_empty()
-		and distance <= settings.long_press_distance_limit
-		and raw_gesture_data.is_consistent(
-			settings.long_press_distance_limit, settings.finger_size * raw_gesture_data.size()
-		)
-	)
-	if not held_still:
-		return
-
-	if _single_touch_cancelled:
-		_dispatch(&"multi_long_press", InputEventMultiScreenLongPress.new(raw_gesture_data))
-	else:
-		_dispatch(&"single_long_press", InputEventSingleScreenLongPress.new(raw_gesture_data))
-
-
-func _end_gesture() -> void:
-	_single_drag_enabled = false
-	_long_press_timer.stop()
-	raw_gesture_data = RawGesture.new()
-
-
-# --- Input helpers --------------------------------------------------------------
-
-func _mouse_position() -> Vector2:
-	return get_viewport().get_mouse_position()
-
-
-func _is_action(event: InputEvent, action: StringName) -> bool:
-	return InputMap.has_action(action) and (
-		event.is_action_pressed(action) or event.is_action_released(action)
-	)
-
-
-func _is_action_pressed(event: InputEvent, action: StringName) -> bool:
-	return InputMap.has_action(action) and event.is_action_pressed(action)
-
-
-func _native_touch_event(index: int, position: Vector2, pressed: bool) -> InputEventScreenTouch:
-	var native_touch := InputEventScreenTouch.new()
-	native_touch.index = index
-	native_touch.position = position
-	native_touch.pressed = pressed
-	return native_touch
-
-
-func _native_drag_event(
-	index: int, position: Vector2, relative: Vector2, velocity: Vector2
-) -> InputEventScreenDrag:
-	var native_drag := InputEventScreenDrag.new()
-	native_drag.index = index
-	native_drag.position = position
-	native_drag.relative = relative
-	native_drag.velocity = velocity
-	return native_drag
-
-
-# --- Desktop emulation bindings -------------------------------------------------
-
-func _setup_timer(timer: Timer, on_timeout: Callable) -> void:
-	timer.one_shot = true
-	timer.timeout.connect(on_timeout)
-	add_child(timer)
-
-
-func _register_default_bindings() -> void:
-	_add_key_action("multi_swipe_up", KEY_I)
-	_add_key_action("multi_swipe_up_right", KEY_O)
-	_add_key_action("multi_swipe_right", KEY_L)
-	_add_key_action("multi_swipe_down_right", KEY_PERIOD)
-	_add_key_action("multi_swipe_down", KEY_COMMA)
-	_add_key_action("multi_swipe_down_left", KEY_M)
-	_add_key_action("multi_swipe_left", KEY_J)
-	_add_key_action("multi_swipe_up_left", KEY_U)
-
-	_add_key_action("single_swipe_up", KEY_W)
-	_add_key_action("single_swipe_up_right", KEY_E)
-	_add_key_action("single_swipe_right", KEY_D)
-	_add_key_action("single_swipe_down_right", KEY_C)
-	_add_key_action("single_swipe_down", KEY_X)
-	_add_key_action("single_swipe_down_left", KEY_Z)
-	_add_key_action("single_swipe_left", KEY_A)
-	_add_key_action("single_swipe_up_left", KEY_Q)
-
-	_add_mouse_button_action("single_touch", MOUSE_BUTTON_LEFT)
-	_add_mouse_button_action("multi_touch", MOUSE_BUTTON_MIDDLE)
-	_add_mouse_button_action("pinch_outward", MOUSE_BUTTON_WHEEL_UP)
-	_add_mouse_button_action("pinch_inward", MOUSE_BUTTON_WHEEL_DOWN)
-	_add_mouse_button_action("twist", MOUSE_BUTTON_RIGHT)
-
-
-func _add_key_action(action: StringName, key: Key) -> void:
-	var event := InputEventKey.new()
-	event.keycode = key
-	_set_default_action(action, event)
-
-
-func _add_mouse_button_action(action: StringName, button: MouseButton) -> void:
-	var event := InputEventMouseButton.new()
-	event.button_index = button
-	_set_default_action(action, event)
-
-
-func _set_default_action(action: StringName, event: InputEvent) -> void:
-	if not InputMap.has_action(action):
-		InputMap.add_action(action)
-		InputMap.action_add_event(action, event)
+func _held_finger_starts() -> Array:
+	var starts: Array = []
+	for finger: _Finger in _fingers.values():
+		if finger.down:
+			starts.append(finger.start)
+	return starts

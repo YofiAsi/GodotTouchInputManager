@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1_settings")
 process_when_paused = true
-default_bindings = true
 debug = false
-drag_startup_time = 0.02
-finger_size = 100.0
-multi_finger_release_threshold = 0.1
 tap_time_limit = 0.2
 tap_distance_limit = 25.0
 long_press_time_threshold = 0.75
