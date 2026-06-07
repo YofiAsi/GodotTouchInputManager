@@ -1,0 +1,14 @@
+# Keep Godot Asset Library installs limited to the addon itself.
+#
+# The Asset Library (and GitHub "Download ZIP" / release source archives) use
+# `git archive`, which honors `export-ignore`. The files below are only useful
+# for developing or demoing this repository -- shipping them to projects that
+# install the addon would be noise, and `project.godot` would clash with the
+# consumer's own project. Everything under addons/ plus README/LICENSE remains.
+
+/demo/          export-ignore
+/.github/       export-ignore
+/.gitignore     export-ignore
+/.gitattributes export-ignore
+/project.godot  export-ignore
+/icon.svg       export-ignore
