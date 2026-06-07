@@ -1,134 +1,117 @@
-<img src="https://i.imgur.com/HxwBAK2.png" align="right" />
-
 # Godot Touch Input Manager
-Godot Touch Input Manager (GDTIM) is an asset that improves touch input support (includes [new gestures](#supported-gestures)) in the Godot game engine. You just need to autoload a script and it will start analyzing the touch input. When a gesture is detected a Custom Input Event corresponding to the detected gesture will be created and [fed up](https://docs.godotengine.org/en/stable/classes/class_input.html#class-input-method-parse-input-event) to the Godot built in Input Event system so it triggers functions like [`_input(InputEvent event)`](https://docs.godotengine.org/en/stable/classes/class_node.html#class-node-method-input). There is also a signal for each gesture if you prefer using signals to the aforementioned.
 
-There are two active PRs that add some GDTIM gestures as native Godot events, one for [version 3.x](https://github.com/godotengine/godot/pull/37754) and one for [version 4.x](https://github.com/godotengine/godot/pull/39055), if you are interested, please show your support there.
+A small, focused **touch gesture** addon for **Godot 4.6+**. Autoload one singleton and it
+analyzes native touch input, recognizing five gestures and delivering each both as a **signal**
+and as a **custom `InputEvent`** (fed through Godot's input system via
+[`Input.parse_input_event`](https://docs.godotengine.org/en/stable/classes/class_input.html#class-input-method-parse-input-event),
+so they reach `_input` / `_unhandled_input` like any other event).
 
-## Table of contents
-* [How to use](#how-to-use)
-* [Examples](#examples)
-* [Documentation](#documentation)
-* [FAQ](#faq)
+This is a modernized, slimmed-down fork of the original
+[GodotTouchInputManager](https://github.com/Federico-Ciuffardi/GodotTouchInputManager) by
+Federico Ciuffardi.
 
-## How to use
-* Download the latest release from https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/releases
-* Extract the downloaded *.zip* file somewhere in you project
-* Locate the extracted `InputManager.gd`, and [Autoload](https://docs.godotengine.org/en/3.4/tutorials/scripting/singletons_autoload.html) it.
-* Done! Now you can use GDTIM [signals and Custom Input Events](#supported-gestures).
+## Supported gestures
 
-## Examples
-### [GodotTouchInputManager-Demo](https://github.com/Federico-Ciuffardi/GodotTouchInputManager-Demo)
-![Demo](https://media.giphy.com/media/wnMStTBUdhQcnXLXpB/giphy.gif)
-### [GestureControlledCamera2D](https://github.com/Federico-Ciuffardi/GestureControlledCamera2D)
-![Demo](https://media.giphy.com/media/Xzdynnlx4XAqndgVe0/giphy.gif)
+| Signal | Custom InputEvent | Description |
+|---|---|---|
+| `single_tap` | `InputEventSingleScreenTap` | Quick press & release with one finger |
+| `single_long_press` | `InputEventSingleScreenLongPress` | One finger held in place past the threshold |
+| `swipe_up` / `swipe_down` / `swipe_left` / `swipe_right` | `InputEventSingleScreenSwipe` | Fast one-finger flick; event carries `direction` + raw `relative` vector |
+| `multi_tap` | `InputEventMultiScreenTap` | Quick press & release with 2+ fingers |
+| `multi_long_press` | `InputEventMultiScreenLongPress` | 2+ fingers held in place past the threshold |
 
-## Documentation
+Event fields:
+- **Tap / long press:** `position: Vector2`
+- **Swipe:** `position: Vector2` (start), `relative: Vector2` (raw press→release), `direction: InputEventSingleScreenSwipe.Direction` (`UP`/`DOWN`/`LEFT`/`RIGHT`)
+- **Multi tap / long press:** `position: Vector2` (centroid), `fingers: int`, `positions: Array` (per-finger starts)
 
-* [Supported gestures](#supported-gestures)
-* [Gesture emulation](#gesture-emulation)
-* [Configuration](#configuration)
+## Installation
 
-### Supported gestures 
+1. Copy the `addons/godot_touch_input_manager/` folder into your project.
+2. Enable the plugin: **Project → Project Settings → Plugins → Godot Touch Input Manager**.
+3. Enabling it registers the **`GestureManager`** autoload automatically. That's it.
 
-| Gesture name               | Signal            | Custom input event / Signal arg                                                                                                       | Description                                  |
-|----------------------------|-------------------|---------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------|
-| Single finger touch        | single_touch      | [InputEventSingleScreenTouch](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventSingleScreenTouch)       | Touch with a single finger                   |
-| Single finger tap          | single_tap        | [InputEventSingleScreenTap](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventSingleScreenTap)           | Fast press and release with a single finger  |
-| Single finger long press   | single_long_press | [InputEventSingleScreenLongPress](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventSingleScreenLongPress)   | Press and hold with a single finger          |
-| Single finger drag         | single_drag       | [InputEventSingleScreenDrag](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventSingleScreenDrag)         | Drag with a single finger                    |
-| Single finger swipe        | single_swipe      | [InputEventSingleScreenSwipe](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventSingleScreenSwipe)       | Fast drag and release with a single finger   |
-| Multiple finger tap        | multi_tap         | [InputEventMultiScreenTap](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventMultiScreenTap)             | Fast press and release with multiple fingers |
-| Multiple finger long press | multi_long_press  | [InputEventMultiScreenLongPress](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventMultiScreenLongPress) | Press and hold with multiple fingers         |
-| Multiple finger drag       | multi_drag        | [InputEventMultiScreenDrag](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventMultiScreenDrag)           | Drag with multiple fingers (same direction)  |
-| Multiple finger swipe      | multi_swipe       | [InputEventMultiScreenTap](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventMultiScreenTap)             | Fast drag and release with multiple fingers  |
-| Pinch                      | pinch             | [InputEventScreenPinch](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventScreenPinch)                   | Drag with multiple fingers (inward/outward)  |
-| Twist                      | twist             | [InputEventScreenTwist](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/InputEventScreenTwist)                   | Drag with multiple fingers (rotate)          |
-| Raw gesture              | raw_gesture       | [RawGesture](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/wiki/RawGesture)                                   | Raw gesture state
+## Usage
 
-When one of these gestures is detected a Custom Input Event corresponding to the detected gesture will be created and [fed up](https://docs.godotengine.org/en/stable/classes/class_input.html#class-input-method-parse-input-event) to the Godot built in Input Event system so it triggers functions like [`_input(InputEvent event)`](https://docs.godotengine.org/en/stable/classes/class_node.html#class-node-method-input).
+### Connect to a signal (simplest)
 
-### Gesture emulation
+```gdscript
+func _ready() -> void:
+    GestureManager.swipe_left.connect(_on_swipe_left)
+    GestureManager.single_tap.connect(_on_tap)
 
-The gestures can be triggered by named [input actions](https://docs.godotengine.org/en/stable/tutorials/inputs/input_examples.html#inputmap) with specific names. If the input
-action does not exists there is a default event that will trigger the gesture.
+func _on_swipe_left(event: InputEventSingleScreenSwipe) -> void:
+    player.dash(Vector2.LEFT)
 
-The following table shows the default event and the names of the input actions
-that will trigger each of the gestures that can be emulated.
+func _on_tap(event: InputEventSingleScreenTap) -> void:
+    print("tapped at ", event.position)
+```
 
-| Gesture name                       | Input action name       | Default event |
-|------------------------------------|-------------------------|---------------|
-| Single touch                       | single_touch            | **\***        |
-| Multiple touch (2 fingers)         | multi_touch             | Middle click  |
-| Pinch (outward)                    | pinch_outward           | Scroll up     |
-| Pinch (inward)                     | pinch_inward            | Scroll down   |
-| Twist                              | twist                   | Right click   |
-| Single finger swipe (up)           | single_swipe_up         | w             |
-| Single finger swipe (up-right)     | single_swipe_up_right   | e             |
-| Single finger swipe (right)        | single_swipe_right      | d             |
-| Single finger swipe (down-right)   | single_swipe_down_right | c             |
-| Single finger swipe (down)         | single_swipe_down       | x             |
-| Single finger swipe (down-left)    | single_swipe_down_left  | z             |
-| Single finger swipe (left)         | single_swipe_left       | a             |
-| Single finger swipe (left-up)      | single_swipe_up_left    | q             |
-| Multiple finger swipe (up)         | multi_swipe_up          | i             |
-| Multiple finger swipe (up-right)   | multi_swipe_up_right    | o             |
-| Multiple finger swipe (right)      | multi_swipe_right       | l             |
-| Multiple finger swipe (down-right) | multi_swipe_down_right  | .             |
-| Multiple finger swipe (down)       | multi_swipe_down        | ,             |
-| Multiple finger swipe (down-left)  | multi_swipe_down_left   | m             |
-| Multiple finger swipe (left)       | multi_swipe_left        | j             |
-| Multiple finger swipe (left-up)    | multi_swipe_up_left     | u             |
+### Or handle it as an InputEvent
 
-**\*** There are two options to enable single finger gestures:
-1. Go to **Project > Project Settings > General > Input Devices > Pointing**
-   and turn on *Emulate Touch From Mouse* to emulate a single finger touch with
-   the left click. 
-2. Go to **Project > Project Settings > General > Input Devices > Pointing**
-   and turn off both *Emulate Touch From Mouse* and *Emulate Mouse From Touch*.
-   Then set an input action called `single_touch`.
+```gdscript
+func _unhandled_input(event: InputEvent) -> void:
+    if event is InputEventSingleScreenSwipe:
+        if event.direction == InputEventSingleScreenSwipe.Direction.LEFT:
+            player.dash(Vector2.LEFT)
+    elif event is InputEventSingleScreenTap:
+        select(event.position)
+```
+
+### Driving an Input Map action
+
+Godot's **Input Map** editor cannot list custom event types, so gestures can't be bound there
+alongside keys/joypad. To make a gesture drive a named action (so `Input.is_action_*` responds),
+create the action in Project Settings and bridge it in code:
+
+```gdscript
+func _ready() -> void:
+    GestureManager.swipe_left.connect(_trigger.bind(&"move_left"))
+
+func _trigger(_event: InputEvent, action: StringName) -> void:
+    Input.action_press(action)               # just_pressed this frame
+    Input.action_release.call_deferred(action)
+```
 
 ## Configuration
 
-These are located in the first lines of [InputManager.gd](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/blob/master/InputManager.gd), to change them modify the 
-values on the script.
+All thresholds live in a `GestureSettings` resource. The addon ships
+`addons/godot_touch_input_manager/default_gesture_settings.tres`. To customize, duplicate that
+`.tres`, edit it in the Inspector, and either:
+- set its path in **Project Settings → `godot_touch_input_manager/settings_path`**, or
+- assign it at runtime: `GestureManager.settings = preload("res://my_gestures.tres")`.
 
-| Name                           | Default value | Description                                                                                                                                                                                                                                                                            |
-|--------------------------------|---------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| DEFAULT_BINDIGS                | true          | Enable or disable default events for [gesture emulation](#gesture-emulation)                                                                                                                                                                                                           |
-| DEBUG                          | false         | Enable or disable debug information                                                                                                                                                                                                                                                    |
-| DRAG_STARTUP_TIME              | 0.2           | Seconds from the first native drag event to the first [single finger drag](#gestures-supported) custom event                                                                                                                                                                           |
-| FINGER_SIZE                    | 100.0         | The distance between the fingers must be less than `fingers*FINGER_SIZE` pixels for the [multiple finger tap](#supported-gestures) and [multiple finger swipe](#supported-gestures) gestures to be recognized. Setting it to `INF` removes this restriction.                         |
-| MULTI_FINGER_RELEASE_THRESHOLD | 0.1           | All fingers must be released within `MULTI_FINGER_REALEASE_THRESHOLD` seconds before the gesture ends for the [multiple finger tap](#gestures-supported) and [multiple finger swipe](#gestures-supported) gestures to be recognized                                                  |
-| TAP_TIME_LIMIT                 | 0.2           | The time between the first press and the last release must be less than `TAP_TIME_LIMIT` seconds for the [single finger tap](#supported-gestures) and [multiple finger tap](#supported-gestures)  gestures to be recognized                                                          |
-| TAP_DISTANCE_LIMIT             | 25.0          | The centroid of the finger presses must differ less than `TAP_DISTANCE_LIMIT` pixels from the centroid of the finger releases for the [single finger tap](#supported-gestures) and [multiple finger tap](#supported-gestures)  gestures to be recognized.                            |
-| SWIPE_TIME_LIMIT               | 0.5           | The time between the first press and the last release must be less than `SWIPE_TIME_LIMIT` seconds for the [single finger swipe](#supported-gestures) and [multiple finger swipe](#supported-gestures)  gestures to be recognized.                                                   |
-| SWIPE_DISTANCE_THRESHOLD       | 200.0         | The centroid of the finger presses must differ by more than `SWIPE_DISTANCE_THRESHOLD` pixels from the centroid of the finger releases for the [single finger swipe](#supported-gestures) and [multiple finger swipe](#supported-gestures) gestures to be recognized.                |
-| LONG_PRESS_TIME_THRESHOLD      | 0.75          | The fingers must press for `LONG_PRESS_TIME_THRESHOLD` seconds for [single-finger long press](#gestures-supported) and [multi-finger long press](#gestures-supported) gestures to be recognized.                                                                                     |
-| LONG_PRESS_DISTANCE_LIMIT      | 25.0          | The centroid of the finger presses must differ less than `LONG_PRESS_DISTANCE_LIMIT` pixels from the centroid of the fingers last positions for the [single finger long press](#supported-gestures) and [multiple finger long press](#supported-gestures) gestures to be recognized. |
+| Property | Default | Description |
+|---|---|---|
+| `process_when_paused` | `true` | Keep recognizing gestures while the SceneTree is paused |
+| `debug` | `false` | Print every emitted gesture to the Output panel |
+| `tap_time_limit` | `0.2` | Max duration (s) of a tap |
+| `tap_distance_limit` | `25.0` | Max travel (px) allowed during a tap |
+| `long_press_time_threshold` | `0.75` | Hold time (s) to trigger a long press |
+| `long_press_distance_limit` | `25.0` | Max travel (px) allowed during a long press |
+| `swipe_time_limit` | `0.5` | Max duration (s) of a swipe |
+| `swipe_distance_threshold` | `200.0` | Min travel (px) for a swipe to register |
 
-## FAQ
-### How can I get GDTIM to work when using control nodes?
+## Testing
 
-By default, the control nodes consume events and therefore GDTIM cannot analyze them. To prevent this, set `Mouse>Filter` to `Ignore` on control nodes as needed.
+This addon is **touch-only**. The included demo project (`demo/demo.tscn`) visualizes gestures.
 
-![image](https://user-images.githubusercontent.com/45585143/235382152-1c99f7eb-eed3-4f96-b1b2-ba0a899d5225.png)
+- **On a device:** all five gestures, including the multi-finger ones.
+- **On desktop:** the demo project enables *Emulate Touch From Mouse*, so single-finger gestures
+  work with the mouse — **click** = tap, **click-and-hold** = long press, **flick** = swipe.
+  Multi-finger gestures require a real touchscreen.
 
-For more information see the [documentation](https://docs.godotengine.org/en/stable/classes/class_control.html#enum-control-mousefilter).
+## Notes & FAQ
 
-### GDTIM events don't trigger collisions, is there a way to fix it?
+**Control nodes consume touch.** Gestures are detected in `_unhandled_input`, so a `Control` with
+`mouse_filter = Stop` (the default) will swallow touches before they reach the recognizer. Set
+`mouse_filter = Ignore` on controls that should let touches pass through. See the
+[`Control.mouse_filter` docs](https://docs.godotengine.org/en/stable/classes/class_control.html#enum-control-mousefilter).
 
-Custom input events do not trigger collisions, at the moment the solution is to manually check for collisions between shapes and events. For more information and ideas on how to do this see [this issue](https://github.com/Federico-Ciuffardi/GodotTouchInputManager/issues/16).
+**Custom input events don't trigger physics collisions.** Like the original addon, the emitted
+custom events won't drive `_input_event` collision callbacks; check positions manually if needed.
 
-## Versioning
-Using [SemVer](http://semver.org/) for versioning. For the versions available, see the [releases](https://github.com/Federico-Ciuffardi/Godot-Touch-Input-Manager/releases).
+## Credits & license
 
-## Authors
-* Federico Ciuffardi
-
-Feel free to append yourself here if you've made contributions.
-
-## Note
-Thank you for checking out this repository, you can send all your questions and comments to Federico.Ciuffardi@outlook.com.
-
-If you are willing to contribute in any way, please contact me.
+- Original author: **Federico Ciuffardi** — https://github.com/Federico-Ciuffardi/GodotTouchInputManager
+- Licensed under the **MIT License** (see [LICENSE](LICENSE)).

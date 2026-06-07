@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="GestureSettings" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/godot_touch_input_manager/gesture_settings.gd" id="1_settings"]
+
+[resource]
+script = ExtResource("1_settings")
+process_when_paused = true
+debug = false
+tap_time_limit = 0.2
+tap_distance_limit = 25.0
+long_press_time_threshold = 0.75
+long_press_distance_limit = 25.0
+swipe_time_limit = 0.5
+swipe_distance_threshold = 200.0
