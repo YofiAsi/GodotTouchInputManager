@@ -1,0 +1,28 @@
+; Engine configuration file.
+; Demo project for the GodotTouchInputManager addon.
+
+config_version=5
+
+[application]
+
+config/name="GodotTouchInputManager"
+run/main_scene="res://demo/demo.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[autoload]
+
+GestureManager="*res://addons/godot_touch_input_manager/gesture_manager.gd"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot_touch_input_manager/plugin.cfg")
+
+[input_devices]
+
+pointer/emulate_touch_from_mouse=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
