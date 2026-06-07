@@ -20,7 +20,12 @@ enabled=PackedStringArray("res://addons/godot_touch_input_manager/plugin.cfg")
 
 [input_devices]
 
-pointer/emulate_touch_from_mouse=true
+; Keep mouse and touch input paths separate: desktop uses the addon's
+; mouse-button emulation actions, Android uses real touch. Without this, an
+; emulated left-click from a real touch would double-trigger the single_touch
+; action on Android.
+pointer/emulate_mouse_from_touch=false
+pointer/emulate_touch_from_mouse=false
 
 [rendering]
 

@@ -401,6 +401,7 @@ func _register_default_bindings() -> void:
 	_add_key_action("single_swipe_left", KEY_A)
 	_add_key_action("single_swipe_up_left", KEY_Q)
 
+	_add_mouse_button_action("single_touch", MOUSE_BUTTON_LEFT)
 	_add_mouse_button_action("multi_touch", MOUSE_BUTTON_MIDDLE)
 	_add_mouse_button_action("pinch_outward", MOUSE_BUTTON_WHEEL_UP)
 	_add_mouse_button_action("pinch_inward", MOUSE_BUTTON_WHEEL_DOWN)
