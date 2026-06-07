@@ -34,9 +34,9 @@ func _on_any_gesture(gesture_name: StringName, event: InputEvent) -> void:
 
 	# `position` is read dynamically because InputEvent has no such property; the
 	# concrete gesture subclasses do.
-	var position: Variant = event.get("position")
-	if position != null:
-		_marker_position = position
+	var gesture_position: Variant = event.get("position")
+	if gesture_position != null:
+		_marker_position = gesture_position
 		_marker_visible = true
 		queue_redraw()
 
