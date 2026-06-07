@@ -16,7 +16,13 @@ var _marker_visible := false
 
 
 func _ready() -> void:
-	_title.text = "GodotTouchInputManager demo — touch / drag / swipe / pinch / twist"
+	_title.text = (
+		"GodotTouchInputManager demo\n"
+		+ "Touch screen: tap / drag / swipe / long-press / pinch / twist directly.\n"
+		+ "Desktop: left-drag = touch/drag/swipe, hold still = long-press,\n"
+		+ "wheel = pinch, right-drag = twist, middle-drag = multi-drag,\n"
+		+ "Q W E / A D / Z X C = single swipe, U I O / J L / M , . = multi swipe."
+	)
 	GestureManager.any_gesture.connect(_on_any_gesture)
 
 
