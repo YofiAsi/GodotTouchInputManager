@@ -1,5 +1,10 @@
 ; Engine configuration file.
-; Demo project for the GodotTouchInputManager addon.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -20,9 +25,6 @@ enabled=PackedStringArray("res://addons/godot_touch_input_manager/plugin.cfg")
 
 [input_devices]
 
-; Touch-only addon. On desktop, turn mouse input into touch so single-finger
-; gestures (tap / long-press / swipe) can be tested without a device; keep the
-; reverse off so touch never bounces back into mouse events.
 pointer/emulate_touch_from_mouse=true
 pointer/emulate_mouse_from_touch=false
 
@@ -30,3 +32,4 @@ pointer/emulate_mouse_from_touch=false
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

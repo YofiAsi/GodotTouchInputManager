@@ -1,8 +1,8 @@
 # Godot Touch Input Manager
 
 A small, focused **touch gesture** addon for **Godot 4.6+**. Autoload one singleton and it
-analyzes native touch input, recognizing five gestures and delivering each both as a **signal**
-and as a **custom `InputEvent`** (fed through Godot's input system via
+analyzes native touch input, recognizing a handful of gestures and delivering each both as a
+**signal** and as a **custom `InputEvent`** (fed through Godot's input system via
 [`Input.parse_input_event`](https://docs.godotengine.org/en/stable/classes/class_input.html#class-input-method-parse-input-event),
 so they reach `_input` / `_unhandled_input` like any other event).
 
@@ -15,13 +15,17 @@ Federico Ciuffardi.
 | Signal | Custom InputEvent | Description |
 |---|---|---|
 | `single_tap` | `InputEventSingleScreenTap` | Quick press & release with one finger |
-| `single_long_press` | `InputEventSingleScreenLongPress` | One finger held in place past the threshold |
+| `long_press_drag` | `InputEventSingleScreenLongPressDrag` | One finger held past the threshold, then optionally dragged and released — a `BEGIN → UPDATE… → END` lifecycle (plus `CANCEL`). Great for in-place radial / context menus |
 | `swipe_up` / `swipe_down` / `swipe_left` / `swipe_right` | `InputEventSingleScreenSwipe` | Fast one-finger flick; event carries `direction` + raw `relative` vector |
 | `multi_tap` | `InputEventMultiScreenTap` | Quick press & release with 2+ fingers |
 | `multi_long_press` | `InputEventMultiScreenLongPress` | 2+ fingers held in place past the threshold |
 
+> `long_press_drag` **replaces** the old single-finger `single_long_press`. A plain long press is
+> now a `BEGIN` followed by an `END` with little or no movement.
+
 Event fields:
-- **Tap / long press:** `position: Vector2`
+- **Tap:** `position: Vector2`
+- **Long press drag:** `phase: InputEventSingleScreenLongPressDrag.Phase` (`BEGIN`/`UPDATE`/`END`/`CANCEL`), `position: Vector2` (origin — where the press began, constant), `current: Vector2` (live finger position), `relative: Vector2` (`current - position`)
 - **Swipe:** `position: Vector2` (start), `relative: Vector2` (raw press→release), `direction: InputEventSingleScreenSwipe.Direction` (`UP`/`DOWN`/`LEFT`/`RIGHT`)
 - **Multi tap / long press:** `position: Vector2` (centroid), `fingers: int`, `positions: Array` (per-finger starts)
 
@@ -45,6 +49,27 @@ func _on_swipe_left(event: InputEventSingleScreenSwipe) -> void:
 
 func _on_tap(event: InputEventSingleScreenTap) -> void:
     print("tapped at ", event.position)
+```
+
+### Driving a press-drag-release menu
+
+`long_press_drag` is a multi-phase gesture: connect once and switch on `event.phase` to open a
+menu where the press began, track the finger as it drags, and commit (or cancel) on release.
+
+```gdscript
+func _ready() -> void:
+    GestureManager.long_press_drag.connect(_on_long_press_drag)
+
+func _on_long_press_drag(event: InputEventSingleScreenLongPressDrag) -> void:
+    match event.phase:
+        InputEventSingleScreenLongPressDrag.Phase.BEGIN:
+            menu.open_at(event.position)               # the long press happened here
+        InputEventSingleScreenLongPressDrag.Phase.UPDATE:
+            menu.highlight(event.current)              # finger is dragging while held
+        InputEventSingleScreenLongPressDrag.Phase.END:
+            menu.commit(event.current)                 # released — pick the option
+        InputEventSingleScreenLongPressDrag.Phase.CANCEL:
+            menu.dismiss()                             # touch was canceled
 ```
 
 ### Or handle it as an InputEvent
@@ -94,12 +119,13 @@ All thresholds live in a `GestureSettings` resource. The addon ships
 
 ## Testing
 
-This addon is **touch-only**. The included demo project (`demo/demo.tscn`) visualizes gestures.
+This addon is **touch-only**. The included demo project (`demo/demo.tscn`) visualizes gestures and
+includes a working press-drag-release radial menu driven by `long_press_drag`.
 
-- **On a device:** all five gestures, including the multi-finger ones.
+- **On a device:** every gesture, including the multi-finger ones.
 - **On desktop:** the demo project enables *Emulate Touch From Mouse*, so single-finger gestures
-  work with the mouse — **click** = tap, **click-and-hold** = long press, **flick** = swipe.
-  Multi-finger gestures require a real touchscreen.
+  work with the mouse — **click** = tap, **click-and-hold** = open the radial menu (then drag to an
+  option and release to pick), **flick** = swipe. Multi-finger gestures require a real touchscreen.
 
 ## Notes & FAQ
 

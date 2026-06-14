@@ -14,13 +14,13 @@ extends Resource
 
 @export_group("Tap")
 ## Maximum duration of a tap (seconds).
-@export var tap_time_limit: float = 0.2
+@export var tap_time_limit: float = 0.08
 ## Maximum travel distance allowed during a tap (px).
 @export var tap_distance_limit: float = 25.0
 
 @export_group("Long press")
 ## How long a touch must be held to count as a long press (seconds).
-@export var long_press_time_threshold: float = 0.75
+@export var long_press_time_threshold: float = 0.1
 ## Maximum travel distance allowed during a long press (px).
 @export var long_press_distance_limit: float = 25.0
 
